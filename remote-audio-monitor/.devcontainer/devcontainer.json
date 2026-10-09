@@ -1,0 +1,9 @@
+{
+  "name": "remote-audio-monitor",
+  "image": "mcr.microsoft.com/devcontainers/java:17",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "20" },
+    "ghcr.io/devcontainers-community/features/android-sdk:1": {}
+  },
+  "postCreateCommand": "node --version && java -version && sdkmanager --version"
+}

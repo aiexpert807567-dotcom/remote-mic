@@ -1,0 +1,39 @@
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/.env
+web/.env.local
+web/.env*.local
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/*.iml
+android/.idea/
+android/captures/
+android-sdk/
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Firebase
+firebase/.firebase/
+firebase/functions/node_modules/
+firebase/functions/lib/
+.firebaserc
+
+# Env / secrets (never commit these)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS/editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
