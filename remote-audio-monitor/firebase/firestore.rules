@@ -1,18 +1,75 @@
-rules_version='2'
+rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(ownerId) {
+      return isSignedIn() && request.auth.uid == ownerId;
+    }
+
+    // --- Paired devices ---
+    // One doc per phone paired to this account. Only the owning user can
+    // read, create, update, or delete their own device records.
+    match /devices/{deviceId} {
+      allow read, delete: if isOwner(resource.data.ownerId);
+      allow create: if isOwner(request.resource.data.ownerId);
+      allow update: if isOwner(resource.data.ownerId)
+                    && isOwner(request.resource.data.ownerId);
+    }
+
+    // --- Listen sessions ---
+    // A session is only visible to / modifiable by its owner. Session
+    // documents never contain audio data — only state/metadata.
+    match /sessions/{sessionId} {
+      allow read, delete: if isOwner(resource.data.ownerId);
+      allow create: if isOwner(request.resource.data.ownerId);
+      allow update: if isOwner(resource.data.ownerId)
+                    && isOwner(request.resource.data.ownerId);
+
+      // --- WebRTC signaling messages (subcollection) ---
+      // Offer/answer/ICE candidate exchange for this session. Scoped to the
+      // parent session's owner. Messages carry their own expiresAt field;
+      // expired messages are rejected on read so stale signaling data can
+      // never be replayed, even before a cleanup job deletes them.
+      match /messages/{messageId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId)
+                    && resource.data.expiresAt > request.time;
+        allow create: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId)
+                      && request.resource.data.expiresAt > request.time;
+        allow delete: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId);
+        // Signaling messages are append-only / delete-only — never updated
+        // in place, to prevent tampering with an in-flight offer/answer.
+        allow update: if false;
+      }
+    }
+
+    // --- Pairing tokens ---
+    // Short-lived one-time tokens used to pair a new phone to this account.
+    // Only the owner can create or read their own tokens. A token can be
+    // marked used (and only used) by its owner, and only while unexpired
+    // and not already used — this makes the token genuinely one-time and
+    // replay-resistant at the rules layer, not just by convention.
+    match /pairingTokens/{tokenId} {
+      allow read: if isOwner(resource.data.ownerId);
+      allow create: if isOwner(request.resource.data.ownerId)
+                    && request.resource.data.used == false
+                    && request.resource.data.expiresAt > request.time;
+      allow update: if isOwner(resource.data.ownerId)
+                    && resource.data.used == false
+                    && resource.data.expiresAt > request.time
+                    && request.resource.data.used == true
+                    // Only the `used` field may change on update.
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used']);
+      allow delete: if isOwner(resource.data.ownerId);
+    }
+
+    // Deny everything else by default.
     match /{document=**} {
-      // This rule allows anyone with your database reference to view, edit,
-      // and delete all data in your database. It is useful for getting
-      // started, but it is configured to expire after 30 days because it
-      // leaves your app open to attackers. At that time, all client
-      // requests to your database will be denied.
-      //
-      // Make sure to write security rules for your app before that time, or
-      // else all client requests to your database will be denied until you
-      // update your rules.
-      allow read, write: if request.time < timestamp.date(2026, 11, 9);
+      allow read, write: if false;
     }
   }
 }
