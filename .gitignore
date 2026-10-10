@@ -1,2 +1,42 @@
-
+# Android SDK (local install, never committed)
 android-sdk/
+
+# Node / Next.js
+node_modules/
+remote-audio-monitor/web/.next/
+remote-audio-monitor/web/out/
+remote-audio-monitor/web/.env
+remote-audio-monitor/web/.env.local
+remote-audio-monitor/web/.env*.local
+
+# Android build output and secrets
+remote-audio-monitor/android/.gradle/
+remote-audio-monitor/android/app/build/
+remote-audio-monitor/android/build/
+remote-audio-monitor/android/local.properties
+remote-audio-monitor/android/*.iml
+remote-audio-monitor/android/.idea/
+remote-audio-monitor/android/captures/
+remote-audio-monitor/android/app/google-services.json
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# Firebase
+remote-audio-monitor/firebase/.firebase/
+remote-audio-monitor/firebase/functions/node_modules/
+remote-audio-monitor/firebase/functions/lib/
+.firebaserc
+
+# Env / secrets (never commit these)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS/editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
