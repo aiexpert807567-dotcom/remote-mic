@@ -29,6 +29,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
 import com.yourdomain.remoteaudiomonitor.pairing.PairingManager
+import com.yourdomain.remoteaudiomonitor.session.SessionManager
 import com.yourdomain.remoteaudiomonitor.ui.PairingScreen
 import com.yourdomain.remoteaudiomonitor.ui.SignInScreen
 import kotlinx.coroutines.launch
@@ -40,6 +41,7 @@ enum class AppStage { SIGN_IN, PAIRING, MAIN }
 class MainActivity : ComponentActivity() {
 
     private lateinit var pairingManager: PairingManager
+    private var sessionManager: SessionManager? = null
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
@@ -59,20 +61,15 @@ class MainActivity : ComponentActivity() {
 
         pairingManager = PairingManager(this)
 
-        // Decide the starting screen from real state, not guesswork:
-        // already signed in + already paired -> go straight to main
-        // controls, skipping both one-time screens permanently.
         appStageState.value = when {
             FirebaseAuth.getInstance().currentUser == null -> AppStage.SIGN_IN
             !pairingManager.isPaired() -> AppStage.PAIRING
             else -> AppStage.MAIN
         }
 
-        // Fire a heartbeat immediately if we're already paired, so the
-        // dashboard reflects "online" as soon as the app is opened —
-        // not just when a mic session starts.
         if (appStageState.value == AppStage.MAIN) {
             sendHeartbeat("online")
+            startSessionWatching()
         }
 
         setContent {
@@ -83,13 +80,17 @@ class MainActivity : ComponentActivity() {
                             onSignedIn = {
                                 val nowPaired = pairingManager.isPaired()
                                 appStageState.value = if (nowPaired) AppStage.MAIN else AppStage.PAIRING
-                                if (nowPaired) sendHeartbeat("online")
+                                if (nowPaired) {
+                                    sendHeartbeat("online")
+                                    startSessionWatching()
+                                }
                             }
                         )
                         AppStage.PAIRING -> PairingScreen(
                             onPaired = {
                                 appStageState.value = AppStage.MAIN
                                 sendHeartbeat("online")
+                                startSessionWatching()
                             }
                         )
                         AppStage.MAIN -> MainScreen(
@@ -101,6 +102,40 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * Begins watching Firestore for session requests aimed at this
+     * device. For now, a requested session is auto-acknowledged
+     * (moved to "connecting") to confirm the round trip works end to
+     * end — actual WebRTC connection setup happens in a later step.
+     */
+    private fun startSessionWatching() {
+        val deviceDocId = pairingManager.getPairedDeviceDocId() ?: return
+        val manager = SessionManager(deviceDocId)
+        sessionManager = manager
+
+        manager.startWatching(object : SessionManager.SessionListener {
+            override fun onSessionRequested(sessionId: String) {
+                lifecycleScope.launch {
+                    manager.acknowledgeSession(sessionId)
+                    // TODO(Step 2 — WebRTC): begin real offer/answer exchange
+                    // here instead of immediately marking active. For now
+                    // this confirms the signaling round trip end to end.
+                    manager.markSessionActive(sessionId)
+                }
+            }
+
+            override fun onSessionEnded(sessionId: String) {
+                // No audio transport yet to tear down — placeholder for
+                // when WebRTC connection cleanup belongs here.
+            }
+        })
+    }
+
+    override fun onDestroy() {
+        sessionManager?.stopWatching()
+        super.onDestroy()
     }
 
     private fun sendHeartbeat(status: String) {
