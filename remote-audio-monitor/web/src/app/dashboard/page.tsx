@@ -10,6 +10,8 @@ import {
   deleteDoc,
   addDoc,
   serverTimestamp,
+  orderBy,
+  limit,
 } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
@@ -19,9 +21,17 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 interface DeviceDoc {
   id: string;
   displayName: string;
-  status: "online" | "offline" | "unknown";
+  status: "online" | "offline" | "listening" | "unknown";
   pairedAt?: { seconds: number };
   lastSeenAt?: { seconds: number };
+}
+
+interface SessionDoc {
+  id: string;
+  deviceId: string;
+  ownerId: string;
+  state: "requested" | "connecting" | "active" | "ended" | "error";
+  requestedAt?: { seconds: number };
 }
 
 function DashboardContent() {
@@ -30,6 +40,8 @@ function DashboardContent() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [pairingToken, setPairingToken] = useState<string | null>(null);
   const [generatingToken, setGeneratingToken] = useState(false);
+  const [activeSession, setActiveSession] = useState<SessionDoc | null>(null);
+  const [requestingSession, setRequestingSession] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -43,6 +55,34 @@ function DashboardContent() {
     });
     return () => unsubscribe();
   }, [user]);
+
+  // Watch for the most recent session tied to the selected device, so the
+  // UI reflects real state (requested -> connecting -> active -> ended)
+  // rather than only what the dashboard itself just asked for.
+  useEffect(() => {
+    if (!user || !selectedDeviceId) {
+      setActiveSession(null);
+      return;
+    }
+    const q = query(
+      collection(db, "sessions"),
+      where("ownerId", "==", user.uid),
+      where("deviceId", "==", selectedDeviceId),
+      orderBy("requestedAt", "desc"),
+      limit(1)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (snapshot.empty) {
+        setActiveSession(null);
+        return;
+      }
+      const docSnap = snapshot.docs[0];
+      const data = docSnap.data() as Omit<SessionDoc, "id">;
+      // Only treat it as "active" in the UI if it hasn't ended.
+      setActiveSession(data.state === "ended" ? null : { id: docSnap.id, ...data });
+    });
+    return () => unsubscribe();
+  }, [user, selectedDeviceId]);
 
   async function handleRemoveDevice(deviceId: string) {
     if (!confirm("Remove this device? It will need to be paired again to reconnect.")) {
@@ -73,6 +113,30 @@ function DashboardContent() {
     } finally {
       setGeneratingToken(false);
     }
+  }
+
+  async function handleStartListening() {
+    if (!user || !selectedDeviceId) return;
+    setRequestingSession(true);
+    try {
+      await addDoc(collection(db, "sessions"), {
+        ownerId: user.uid,
+        deviceId: selectedDeviceId,
+        state: "requested",
+        requestedAt: serverTimestamp(),
+      });
+    } finally {
+      setRequestingSession(false);
+    }
+  }
+
+  async function handleStopListening() {
+    if (!activeSession) return;
+    const { updateDoc } = await import("firebase/firestore");
+    await updateDoc(doc(db, "sessions", activeSession.id), {
+      state: "ended",
+      endedAt: serverTimestamp(),
+    });
   }
 
   return (
@@ -127,7 +191,11 @@ function DashboardContent() {
             >
               <span className="font-medium">{device.displayName || "Unnamed device"}</span>
               <span className="text-xs text-zinc-500">
-                {device.status === "online" ? "● Online" : "○ Offline"}
+                {device.status === "listening"
+                  ? "● Listening"
+                  : device.status === "online"
+                  ? "● Online"
+                  : "○ Offline"}
               </span>
             </button>
             <button
@@ -145,15 +213,39 @@ function DashboardContent() {
           <h2 className="font-medium text-sm">
             Session control — {devices.find((d) => d.id === selectedDeviceId)?.displayName}
           </h2>
-          <p className="text-sm text-zinc-500">
-            Live listening controls will be wired up once WebRTC signaling is in place.
-          </p>
-          <button
-            disabled
-            className="self-start rounded bg-zinc-300 text-zinc-600 px-4 py-2 text-sm cursor-not-allowed dark:bg-zinc-800"
-          >
-            Start listening (coming soon)
-          </button>
+
+          {!activeSession && (
+            <>
+              <p className="text-sm text-zinc-500">
+                Request a live listening session with this device.
+              </p>
+              <button
+                onClick={handleStartListening}
+                disabled={requestingSession}
+                className="self-start rounded bg-black text-white px-4 py-2 text-sm disabled:opacity-50"
+              >
+                {requestingSession ? "Requesting…" : "Start listening"}
+              </button>
+            </>
+          )}
+
+          {activeSession && (
+            <>
+              <p className="text-sm text-zinc-500">
+                Session state: <span className="font-mono">{activeSession.state}</span>
+                {activeSession.state === "requested" &&
+                  " — waiting for the device to respond…"}
+                {activeSession.state === "active" &&
+                  " — audio transport not yet implemented (coming next)."}
+              </p>
+              <button
+                onClick={handleStopListening}
+                className="self-start rounded bg-red-600 text-white px-4 py-2 text-sm"
+              >
+                Stop listening
+              </button>
+            </>
+          )}
         </section>
       )}
     </main>
