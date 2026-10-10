@@ -40,3 +40,5 @@ remote-audio-monitor/firebase/functions/lib/
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+.vercel
+.env*
