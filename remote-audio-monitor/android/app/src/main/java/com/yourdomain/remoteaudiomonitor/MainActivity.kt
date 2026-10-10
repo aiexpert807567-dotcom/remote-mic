@@ -26,16 +26,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.firebase.auth.FirebaseAuth
 import com.yourdomain.remoteaudiomonitor.pairing.PairingManager
 import com.yourdomain.remoteaudiomonitor.ui.PairingScreen
 import com.yourdomain.remoteaudiomonitor.ui.SignInScreen
+import kotlinx.coroutines.launch
 
 enum class MicStatus { IDLE, ACTIVE, PERMISSION_DENIED }
 
 enum class AppStage { SIGN_IN, PAIRING, MAIN }
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var pairingManager: PairingManager
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
@@ -53,7 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val pairingManager = PairingManager(this)
+        pairingManager = PairingManager(this)
 
         // Decide the starting screen from real state, not guesswork:
         // already signed in + already paired -> go straight to main
@@ -64,18 +68,29 @@ class MainActivity : ComponentActivity() {
             else -> AppStage.MAIN
         }
 
+        // Fire a heartbeat immediately if we're already paired, so the
+        // dashboard reflects "online" as soon as the app is opened —
+        // not just when a mic session starts.
+        if (appStageState.value == AppStage.MAIN) {
+            sendHeartbeat("online")
+        }
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     when (appStageState.value) {
                         AppStage.SIGN_IN -> SignInScreen(
                             onSignedIn = {
-                                appStageState.value =
-                                    if (pairingManager.isPaired()) AppStage.MAIN else AppStage.PAIRING
+                                val nowPaired = pairingManager.isPaired()
+                                appStageState.value = if (nowPaired) AppStage.MAIN else AppStage.PAIRING
+                                if (nowPaired) sendHeartbeat("online")
                             }
                         )
                         AppStage.PAIRING -> PairingScreen(
-                            onPaired = { appStageState.value = AppStage.MAIN }
+                            onPaired = {
+                                appStageState.value = AppStage.MAIN
+                                sendHeartbeat("online")
+                            }
                         )
                         AppStage.MAIN -> MainScreen(
                             status = micStatusState.value,
@@ -85,6 +100,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun sendHeartbeat(status: String) {
+        lifecycleScope.launch {
+            pairingManager.sendHeartbeat(status)
         }
     }
 
@@ -109,12 +130,14 @@ class MainActivity : ComponentActivity() {
         val intent = Intent(this, Class.forName("com.yourdomain.remoteaudiomonitor.service.MicrophoneForegroundService"))
         ContextCompat.startForegroundService(this, intent)
         micStatusState.value = MicStatus.ACTIVE
+        sendHeartbeat("listening")
     }
 
     private fun stopMicService() {
         val intent = Intent(this, Class.forName("com.yourdomain.remoteaudiomonitor.service.MicrophoneForegroundService"))
         stopService(intent)
         micStatusState.value = MicStatus.IDLE
+        sendHeartbeat("online")
     }
 }
 

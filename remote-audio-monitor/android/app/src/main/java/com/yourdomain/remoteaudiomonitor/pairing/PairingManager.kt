@@ -114,4 +114,28 @@ class PairingManager(private val context: Context) {
     fun forgetLocalPairing() {
         prefs.edit().clear().apply()
     }
+
+    /**
+     * Updates lastSeenAt and status on this device's Firestore document.
+     * Called periodically while the app is in the foreground and once when
+     * the microphone service starts/stops, so the dashboard reflects real
+     * device state rather than a stale value from pairing time.
+     */
+    suspend fun sendHeartbeat(status: String = "online") {
+        val deviceDocId = getPairedDeviceDocId() ?: return
+        try {
+            firestore.collection("devices").document(deviceDocId)
+                .update(
+                    mapOf(
+                        "status" to status,
+                        "lastSeenAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+        } catch (e: Exception) {
+            // Heartbeat failures are non-fatal — the device will simply
+            // show as stale/offline on the dashboard until the next
+            // successful heartbeat. Never crash the app over this.
+        }
+    }
 }
