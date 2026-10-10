@@ -26,8 +26,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.google.firebase.auth.FirebaseAuth
+import com.yourdomain.remoteaudiomonitor.pairing.PairingManager
+import com.yourdomain.remoteaudiomonitor.ui.PairingScreen
+import com.yourdomain.remoteaudiomonitor.ui.SignInScreen
 
 enum class MicStatus { IDLE, ACTIVE, PERMISSION_DENIED }
+
+enum class AppStage { SIGN_IN, PAIRING, MAIN }
 
 class MainActivity : ComponentActivity() {
 
@@ -42,17 +48,41 @@ class MainActivity : ComponentActivity() {
         }
 
     private val micStatusState = mutableStateOf(MicStatus.IDLE)
+    private val appStageState = mutableStateOf(AppStage.SIGN_IN)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val pairingManager = PairingManager(this)
+
+        // Decide the starting screen from real state, not guesswork:
+        // already signed in + already paired -> go straight to main
+        // controls, skipping both one-time screens permanently.
+        appStageState.value = when {
+            FirebaseAuth.getInstance().currentUser == null -> AppStage.SIGN_IN
+            !pairingManager.isPaired() -> AppStage.PAIRING
+            else -> AppStage.MAIN
+        }
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    MainScreen(
-                        status = micStatusState.value,
-                        onStartClick = { checkPermissionsAndStart() },
-                        onStopClick = { stopMicService() }
-                    )
+                    when (appStageState.value) {
+                        AppStage.SIGN_IN -> SignInScreen(
+                            onSignedIn = {
+                                appStageState.value =
+                                    if (pairingManager.isPaired()) AppStage.MAIN else AppStage.PAIRING
+                            }
+                        )
+                        AppStage.PAIRING -> PairingScreen(
+                            onPaired = { appStageState.value = AppStage.MAIN }
+                        )
+                        AppStage.MAIN -> MainScreen(
+                            status = micStatusState.value,
+                            onStartClick = { checkPermissionsAndStart() },
+                            onStopClick = { stopMicService() }
+                        )
+                    }
                 }
             }
         }
