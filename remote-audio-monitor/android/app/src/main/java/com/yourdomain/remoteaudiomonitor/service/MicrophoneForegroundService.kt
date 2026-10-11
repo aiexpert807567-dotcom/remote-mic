@@ -66,7 +66,7 @@ class MicrophoneForegroundService : Service() {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasPermission) {
-            serviceScope.launch { SessionManager(deviceDocId).markSessionError(sessionId, "Microphone permission not granted") }
+            serviceScope.launch { SessionManager(deviceDocId, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "").markSessionError(sessionId, "Microphone permission not granted") }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -82,7 +82,7 @@ class MicrophoneForegroundService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: SecurityException) {
-            serviceScope.launch { SessionManager(deviceDocId).markSessionError(sessionId, "Foreground start refused by OS") }
+            serviceScope.launch { SessionManager(deviceDocId, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "").markSessionError(sessionId, "Foreground start refused by OS") }
             stopSelf()
             return START_NOT_STICKY
         }
@@ -94,7 +94,7 @@ class MicrophoneForegroundService : Service() {
     private fun startWebRtc(sessionId: String, deviceDocId: String) {
         val client = WebRtcClient(this)
         webRtcClient = client
-        val sessionManager = SessionManager(deviceDocId)
+        val sessionManager = SessionManager(deviceDocId, com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: "")
 
         serviceScope.launch {
             client.start(sessionId, object : WebRtcClient.ConnectionListener {

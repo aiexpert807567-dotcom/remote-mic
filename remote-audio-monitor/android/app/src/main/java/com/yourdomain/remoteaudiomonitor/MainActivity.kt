@@ -116,7 +116,8 @@ class MainActivity : ComponentActivity() {
 
     private fun startSessionWatching() {
         val deviceDocId = pairingManager.getPairedDeviceDocId() ?: return
-        val manager = SessionManager(deviceDocId)
+        val ownerId = FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val manager = SessionManager(deviceDocId, ownerId)
         sessionManager = manager
 
         manager.startWatching(object : SessionManager.SessionListener {

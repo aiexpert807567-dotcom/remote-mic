@@ -5,7 +5,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 
-class SessionManager(private val deviceDocId: String) {
+class SessionManager(private val deviceDocId: String, private val ownerId: String) {
 
     private val firestore = FirebaseFirestore.getInstance()
     private var listenerRegistration: ListenerRegistration? = null
@@ -20,6 +20,7 @@ class SessionManager(private val deviceDocId: String) {
         stopWatching()
 
         listenerRegistration = firestore.collection("sessions")
+            .whereEqualTo("ownerId", ownerId)
             .whereEqualTo("deviceId", deviceDocId)
             .whereIn("state", listOf("requested", "connecting", "active"))
             .orderBy("requestedAt", Query.Direction.DESCENDING)
