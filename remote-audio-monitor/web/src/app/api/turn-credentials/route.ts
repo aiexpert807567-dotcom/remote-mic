@@ -16,7 +16,7 @@ export async function GET() {
 
   try {
     const response = await fetch(
-      `https://${METERED_DOMAIN}/api/v1/turn/credential?apiKey=${secretKey}`
+      `https://${METERED_DOMAIN}/api/v1/turn/credentials?apiKey=${secretKey}`
     );
 
     if (!response.ok) {
