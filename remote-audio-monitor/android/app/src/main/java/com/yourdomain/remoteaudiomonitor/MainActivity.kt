@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
 
     private val sessionStatusState = mutableStateOf(SessionStatus.IDLE)
     private val appStageState = mutableStateOf(AppStage.SIGN_IN)
+    private val debugErrorState = mutableStateOf<String?>(null)
     private var activeSessionId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,6 +105,7 @@ class MainActivity : ComponentActivity() {
                         )
                         AppStage.MAIN -> MainScreen(
                             status = sessionStatusState.value,
+                            debugError = debugErrorState.value,
                             onStopClick = { stopActiveSession() }
                         )
                     }
@@ -119,6 +121,7 @@ class MainActivity : ComponentActivity() {
 
         manager.startWatching(object : SessionManager.SessionListener {
             override fun onSessionRequested(sessionId: String) {
+                debugErrorState.value = null
                 val hasPermission = ContextCompat.checkSelfPermission(
                     this@MainActivity, Manifest.permission.RECORD_AUDIO
                 ) == PackageManager.PERMISSION_GRANTED
@@ -142,6 +145,10 @@ class MainActivity : ComponentActivity() {
                 activeSessionId = null
                 sessionStatusState.value = SessionStatus.IDLE
                 sendHeartbeat("online")
+            }
+
+            override fun onListenerError(message: String) {
+                debugErrorState.value = message
             }
         })
     }
@@ -179,7 +186,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainScreen(status: SessionStatus, onStopClick: () -> Unit) {
+fun MainScreen(status: SessionStatus, debugError: String?, onStopClick: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center,
@@ -193,6 +200,13 @@ fun MainScreen(status: SessionStatus, onStopClick: () -> Unit) {
             SessionStatus.ERROR -> "Something went wrong"
         }
         Text(text = statusText)
+        if (debugError != null) {
+            Text(
+                text = "Debug: $debugError",
+                color = androidx.compose.ui.graphics.Color.Red,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+        }
         if (status == SessionStatus.ACTIVE || status == SessionStatus.CONNECTING) {
             Button(onClick = onStopClick, modifier = Modifier.padding(top = 16.dp)) {
                 Text("Stop session")

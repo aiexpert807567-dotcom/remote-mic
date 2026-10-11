@@ -13,6 +13,7 @@ class SessionManager(private val deviceDocId: String) {
     interface SessionListener {
         fun onSessionRequested(sessionId: String)
         fun onSessionEnded(sessionId: String)
+        fun onListenerError(message: String) {}
     }
 
     fun startWatching(listener: SessionListener) {
@@ -24,7 +25,11 @@ class SessionManager(private val deviceDocId: String) {
             .orderBy("requestedAt", Query.Direction.DESCENDING)
             .limit(1)
             .addSnapshotListener { snapshot, error ->
-                if (error != null || snapshot == null) return@addSnapshotListener
+                if (error != null) {
+                    listener.onListenerError("${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot == null) return@addSnapshotListener
                 for (change in snapshot.documentChanges) {
                     val doc = change.document
                     when (doc.getString("state")) {
