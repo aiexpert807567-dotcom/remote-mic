@@ -1,9 +1,9 @@
 <resources>
     <string name="app_name">Remote Audio Monitor</string>
-    <string name="notification_channel_name">Microphone Active</string>
-    <string name="notification_channel_description">Shows when the microphone is being captured for a remote listening session</string>
-    <string name="notification_title">Microphone is active</string>
-    <string name="notification_text">A remote listening session is in progress</string>
+    <string name="notification_channel_name">Active Session</string>
+    <string name="notification_channel_description">Shows while a session is running</string>
+    <string name="notification_title">Session active</string>
+    <string name="notification_text">Mic in use</string>
     <string name="notification_stop_action">Stop</string>
     <string name="permission_rationale">This app needs microphone access to let you start remote listening sessions. Audio is only captured while a session is explicitly active.</string>
     <string name="start_session">Start Microphone Service</string>
