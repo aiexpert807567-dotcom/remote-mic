@@ -148,7 +148,7 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onListenerError(message: String) {
-                debugErrorState.value = message
+                debugErrorState.value = "UID=${FirebaseAuth.getInstance().currentUser?.uid} ERR=$message"
             }
         })
     }
