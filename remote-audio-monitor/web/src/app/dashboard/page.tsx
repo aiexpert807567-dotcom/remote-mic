@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   collection,
   query,
@@ -17,6 +17,7 @@ import { signOut } from "firebase/auth";
 import { db, auth } from "@/lib/firebase";
 import { useAuth } from "@/lib/auth-context";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { DashboardWebRTCSession } from "@/lib/webrtc";
 
 interface DeviceDoc {
   id: string;
@@ -42,6 +43,11 @@ function DashboardContent() {
   const [generatingToken, setGeneratingToken] = useState(false);
   const [activeSession, setActiveSession] = useState<SessionDoc | null>(null);
   const [requestingSession, setRequestingSession] = useState(false);
+  const [audioConnected, setAudioConnected] = useState(false);
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const webrtcSessionRef = useRef<DashboardWebRTCSession | null>(null);
+  const connectedSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -56,9 +62,6 @@ function DashboardContent() {
     return () => unsubscribe();
   }, [user]);
 
-  // Watch for the most recent session tied to the selected device, so the
-  // UI reflects real state (requested -> connecting -> active -> ended)
-  // rather than only what the dashboard itself just asked for.
   useEffect(() => {
     if (!user || !selectedDeviceId) {
       setActiveSession(null);
@@ -78,11 +81,49 @@ function DashboardContent() {
       }
       const docSnap = snapshot.docs[0];
       const data = docSnap.data() as Omit<SessionDoc, "id">;
-      // Only treat it as "active" in the UI if it hasn't ended.
       setActiveSession(data.state === "ended" ? null : { id: docSnap.id, ...data });
     });
     return () => unsubscribe();
   }, [user, selectedDeviceId]);
+
+  // Once a session reaches "active", connect WebRTC and start receiving
+  // audio. Only connects once per session (guarded by the ref) and tears
+  // down cleanly when the session ends or changes.
+  useEffect(() => {
+    if (!activeSession || activeSession.state !== "active") {
+      if (webrtcSessionRef.current) {
+        webrtcSessionRef.current.stop();
+        webrtcSessionRef.current = null;
+        connectedSessionIdRef.current = null;
+        setAudioConnected(false);
+      }
+      return;
+    }
+
+    if (connectedSessionIdRef.current === activeSession.id) {
+      return; // already connected to this session
+    }
+
+    const session = new DashboardWebRTCSession();
+    webrtcSessionRef.current = session;
+    connectedSessionIdRef.current = activeSession.id;
+
+    session.start(activeSession.id, (stream) => {
+      if (audioRef.current) {
+        audioRef.current.srcObject = stream;
+        audioRef.current.play().catch(() => {
+          // Autoplay may be blocked until the user interacts with the
+          // page — the <audio> element's native controls let them hit
+          // play manually if so.
+        });
+      }
+      setAudioConnected(true);
+    });
+
+    return () => {
+      session.stop();
+    };
+  }, [activeSession]);
 
   async function handleRemoveDevice(deviceId: string) {
     if (!confirm("Remove this device? It will need to be paired again to reconnect.")) {
@@ -236,8 +277,9 @@ function DashboardContent() {
                 {activeSession.state === "requested" &&
                   " — waiting for the device to respond…"}
                 {activeSession.state === "active" &&
-                  " — audio transport not yet implemented (coming next)."}
+                  (audioConnected ? " — audio connected." : " — connecting audio…")}
               </p>
+              <audio ref={audioRef} controls autoPlay className="w-full" />
               <button
                 onClick={handleStopListening}
                 className="self-start rounded bg-red-600 text-white px-4 py-2 text-sm"
