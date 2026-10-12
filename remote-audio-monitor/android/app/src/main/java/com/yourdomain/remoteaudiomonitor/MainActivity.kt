@@ -143,6 +143,10 @@ class MainActivity : ComponentActivity() {
             }
 
             override fun onSessionEnded(sessionId: String) {
+                if (activeSessionId != null && sessionId != activeSessionId) return
+                startService(Intent(this@MainActivity, MicrophoneForegroundService::class.java).apply {
+                    action = MicrophoneForegroundService.ACTION_STOP
+                })
                 activeSessionId = null
                 sessionStatusState.value = SessionStatus.IDLE
                 sendHeartbeat("online")

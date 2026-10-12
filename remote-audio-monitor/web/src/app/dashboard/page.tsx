@@ -32,6 +32,7 @@ interface SessionDoc {
   deviceId: string;
   ownerId: string;
   state: "requested" | "connecting" | "active" | "ended" | "error";
+  phoneIceState?: string;
   requestedAt?: { seconds: number };
 }
 
@@ -47,7 +48,6 @@ function DashboardContent() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const webrtcSessionRef = useRef<DashboardWebRTCSession | null>(null);
-  const connectedSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -86,44 +86,29 @@ function DashboardContent() {
     return () => unsubscribe();
   }, [user, selectedDeviceId]);
 
-  // Once a session reaches "active", connect WebRTC and start receiving
-  // audio. Only connects once per session (guarded by the ref) and tears
-  // down cleanly when the session ends or changes.
+  // Phone only becomes "active" AFTER the connection is up, so connect on
+  // "connecting" too. Depend on id + boolean so state changes don't tear down.
+  const sessionId = activeSession?.id ?? null;
+  const shouldConnect =
+    activeSession?.state === "connecting" || activeSession?.state === "active";
+
   useEffect(() => {
-    if (!activeSession || activeSession.state !== "active") {
-      if (webrtcSessionRef.current) {
-        webrtcSessionRef.current.stop();
-        webrtcSessionRef.current = null;
-        connectedSessionIdRef.current = null;
-        setAudioConnected(false);
-      }
-      return;
-    }
-
-    if (connectedSessionIdRef.current === activeSession.id) {
-      return; // already connected to this session
-    }
-
+    if (!sessionId || !shouldConnect) return;
     const session = new DashboardWebRTCSession();
     webrtcSessionRef.current = session;
-    connectedSessionIdRef.current = activeSession.id;
-
-    session.start(activeSession.id, (stream) => {
+    session.start(sessionId, (stream) => {
       if (audioRef.current) {
         audioRef.current.srcObject = stream;
-        audioRef.current.play().catch(() => {
-          // Autoplay may be blocked until the user interacts with the
-          // page — the <audio> element's native controls let them hit
-          // play manually if so.
-        });
+        audioRef.current.play().catch(() => {});
       }
       setAudioConnected(true);
     });
-
     return () => {
       session.stop();
+      webrtcSessionRef.current = null;
+      setAudioConnected(false);
     };
-  }, [activeSession]);
+  }, [sessionId, shouldConnect]);
 
   async function handleRemoveDevice(deviceId: string) {
     if (!confirm("Remove this device? It will need to be paired again to reconnect.")) {
@@ -276,8 +261,11 @@ function DashboardContent() {
                 Session state: <span className="font-mono">{activeSession.state}</span>
                 {activeSession.state === "requested" &&
                   " — waiting for the device to respond…"}
-                {activeSession.state === "active" &&
+                {(activeSession.state === "connecting" || activeSession.state === "active") &&
                   (audioConnected ? " — audio connected." : " — connecting audio…")}
+                {activeSession.phoneIceState && (
+                  <> (phone ICE: {activeSession.phoneIceState})</>
+                )}
               </p>
               <audio ref={audioRef} controls autoPlay className="w-full" />
               <button

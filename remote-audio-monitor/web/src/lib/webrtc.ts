@@ -59,21 +59,23 @@ export class DashboardWebRTCSession {
   private pc: RTCPeerConnection | null = null;
   private unsubscribe: (() => void) | null = null;
   private answered = false;
+  private stopped = false;
 
   async start(sessionId: string, onRemoteStream: (stream: MediaStream) => void) {
     const iceServers = await fetchIceServers();
+    if (this.stopped) return;
     const pc = new RTCPeerConnection({ iceServers });
     this.pc = pc;
 
     pc.ontrack = (event) => {
-      if (event.streams[0]) {
-        onRemoteStream(event.streams[0]);
-      }
+      if (event.streams[0]) onRemoteStream(event.streams[0]);
     };
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        sendSignal(sessionId, "dashboard", "ice-candidate", event.candidate.toJSON());
+        sendSignal(sessionId, "dashboard", "ice-candidate", event.candidate.toJSON()).catch(
+          (e) => console.error("send ICE failed", e)
+        );
       }
     };
 
@@ -83,32 +85,49 @@ export class DashboardWebRTCSession {
       orderBy("createdAt", "asc")
     );
 
-    this.unsubscribe = onSnapshot(q, (snapshot) => {
-      snapshot.docChanges().forEach(async (change) => {
-        if (change.type !== "added") return;
-        const data = change.doc.data() as SignalMessage;
+    let chain: Promise<void> = Promise.resolve();
+    let remoteSet = false;
+    const pending: RTCIceCandidateInit[] = [];
 
-        if (data.type === "offer" && !this.answered) {
-          this.answered = true;
-          await pc.setRemoteDescription(
-            new RTCSessionDescription(data.payload as RTCSessionDescriptionInit)
-          );
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          await sendSignal(sessionId, "dashboard", "answer", answer);
-        } else if (data.type === "ice-candidate") {
-          try {
-            await pc.addIceCandidate(new RTCIceCandidate(data.payload as RTCIceCandidateInit));
-          } catch {
-            // Candidate may arrive before remote description is set in
-            // rare orderings — safe to ignore, more candidates follow.
-          }
-        }
-      });
-    });
+    this.unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type !== "added") return;
+          const data = change.doc.data() as SignalMessage;
+          chain = chain
+            .then(async () => {
+              if (this.stopped) return;
+              if (data.type === "offer" && !this.answered) {
+                this.answered = true;
+                await pc.setRemoteDescription(
+                  new RTCSessionDescription(data.payload as RTCSessionDescriptionInit)
+                );
+                remoteSet = true;
+                for (const c of pending.splice(0)) {
+                  await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+                }
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                await sendSignal(sessionId, "dashboard", "answer", {
+                  type: answer.type,
+                  sdp: answer.sdp,
+                });
+              } else if (data.type === "ice-candidate") {
+                const cand = data.payload as RTCIceCandidateInit;
+                if (!remoteSet) pending.push(cand);
+                else await pc.addIceCandidate(new RTCIceCandidate(cand)).catch(() => {});
+              }
+            })
+            .catch((e) => console.error("signaling error", e));
+        });
+      },
+      (err) => console.error("signaling listener error", err)
+    );
   }
 
   stop() {
+    this.stopped = true;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.pc?.close();

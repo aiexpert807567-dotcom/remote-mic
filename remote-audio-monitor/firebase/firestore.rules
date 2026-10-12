@@ -36,8 +36,7 @@ service cloud.firestore {
       // expired messages are rejected on read so stale signaling data can
       // never be replayed, even before a cleanup job deletes them.
       match /messages/{messageId} {
-        allow read: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId)
-                    && resource.data.expiresAt > request.time;
+        allow read: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId);
         allow create: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId)
                       && request.resource.data.expiresAt > request.time;
         allow delete: if isOwner(get(/databases/$(database)/documents/sessions/$(sessionId)).data.ownerId);

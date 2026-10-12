@@ -111,6 +111,9 @@ class MicrophoneForegroundService : Service() {
                     }
                     stopSelfCleanly()
                 }
+                override fun onIceStateChange(state: String) {
+                    serviceScope.launch { sessionManager.updateIceState(sessionId, state) }
+                }
             })
         }
     }

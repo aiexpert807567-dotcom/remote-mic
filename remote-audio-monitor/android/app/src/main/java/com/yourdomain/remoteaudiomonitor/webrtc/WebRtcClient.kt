@@ -1,6 +1,7 @@
 package com.yourdomain.remoteaudiomonitor.webrtc
 
 import android.content.Context
+import android.util.Log
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -50,6 +51,7 @@ class WebRtcClient(private val context: Context) {
         fun onConnected()
         fun onDisconnected()
         fun onFailed()
+        fun onIceStateChange(state: String) {}
     }
 
     private var peerConnectionFactory: PeerConnectionFactory? = null
@@ -136,7 +138,7 @@ class WebRtcClient(private val context: Context) {
                     }
                 }
 
-                override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) {}
+                override fun onIceConnectionChange(p0: PeerConnection.IceConnectionState?) { p0?.let { listener.onIceStateChange(it.name) } }
                 override fun onIceConnectionReceivingChange(p0: Boolean) {}
                 override fun onIceGatheringChange(p0: PeerConnection.IceGatheringState?) {}
                 override fun onIceCandidatesRemoved(p0: Array<out IceCandidate>?) {}
@@ -221,7 +223,11 @@ class WebRtcClient(private val context: Context) {
             .collection("messages")
             .whereEqualTo("senderRole", "dashboard")
             .orderBy("createdAt", Query.Direction.ASCENDING)
-            .addSnapshotListener { snapshot, _ ->
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("WebRtcClient", "signaling listener error", error)
+                    return@addSnapshotListener
+                }
                 snapshot?.documentChanges?.forEach { change ->
                     if (change.type != com.google.firebase.firestore.DocumentChange.Type.ADDED) return@forEach
                     val doc = change.document
